@@ -157,10 +157,6 @@ const MapboxExample = ({
         }
       }
       if (_.has(propertyFilters, "isNewBuild")) {
-        console.log({
-          data: property.isNewBuild,
-          filter: propertyFilters.isNewBuild,
-        });
         if (property.isNewBuild !== propertyFilters.isNewBuild) {
           return false;
         }

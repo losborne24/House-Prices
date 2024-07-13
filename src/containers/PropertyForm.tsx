@@ -39,7 +39,6 @@ export default function PropertyForm({
     }
     if (!propertyType.A) {
       filter.propertyTypes = _.keys(_.pickBy(propertyType, (type) => !!type));
-      console.log(filter);
     }
 
     onSubmit(filter);
