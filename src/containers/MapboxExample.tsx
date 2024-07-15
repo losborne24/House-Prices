@@ -8,11 +8,6 @@ import * as _ from "lodash";
 
 mapboxgl.accessToken =
   "pk.eyJ1IjoibG9zYm9ybmUyNCIsImEiOiJja2JobXZydTkwNncwMndtYmtmeGV6azc3In0.sNYGeQl6T7kSY9x3sij6Ww";
-const GBP = new Intl.NumberFormat("en-gb", {
-  style: "currency",
-  currency: "GBP",
-  minimumFractionDigits: 0,
-});
 
 export interface Property {
   price: number;
@@ -31,27 +26,28 @@ const MapboxExample = ({
   dataSet: Record<string, Property[]>;
   propertyFilters: PropertyFilters;
 }) => {
-  const mapContainerRef = useRef();
-  const mapRef = useRef();
-  const [name, setName] = useState<string>("");
-  const [description, setDescription] = useState<string>("test");
-  const [avgPrice, setAvgPrice] = useState<string>("0");
-  const [volume, setVolume] = useState<number>(0);
+  const mapContainerRef = useRef<any>();
+  const mapRef = useRef<any>();
+  const [postcodeProps, setPostcodeProps] = useState<Property | undefined>(
+    undefined
+  );
 
   useEffect(() => {
-    const data: Property[] = getPropertiesFromFilters();
-    const priceArr = (data || []).map((d) => d.price);
-    const sum = priceArr.reduce((a, b) => a + b, 0);
-    const priceArrLength = priceArr.length;
-    setVolume(priceArrLength || 0);
-    setAvgPrice(
-      GBP.format(
-        priceArrLength
-          ? Math.ceil(Math.round(sum / priceArrLength) / 1000) * 1000
-          : 0
-      )
-    );
-  }, [name, propertyFilters]);
+    if (!mapRef.current?.getSource("states")) return;
+    const priceMap = getPriceMap();
+    const newGeoJson = {
+      ...postcodesGeoJson,
+      features: _.map(postcodesGeoJson.features, (feature) => ({
+        ...feature,
+        properties: {
+          ...feature.properties,
+          volume: priceMap[feature.properties.name]?.volume,
+          price: priceMap[feature.properties.name]?.price,
+        },
+      })),
+    };
+    mapRef.current.getSource("states").setData(newGeoJson);
+  }, [propertyFilters]);
 
   useEffect(() => {
     if (mapRef.current) return;
@@ -59,11 +55,12 @@ const MapboxExample = ({
       container: mapContainerRef.current,
       // Choose from Mapbox's core styles, or make your own style with Mapbox Studio
       style: "mapbox://styles/mapbox/streets-v12",
-      center: [-100.486052, 37.830348],
-      zoom: 2,
+      center: [1.89, 52.4823],
+      zoom: 6,
     });
+    mapRef.current.addControl(new mapboxgl.NavigationControl());
 
-    let hoveredPolygonId = null;
+    let hoveredPolygonId: string | null = null;
 
     mapRef.current.on("load", () => {
       mapRef.current.addSource("states", {
@@ -71,7 +68,25 @@ const MapboxExample = ({
         data: postcodesGeoJson,
         generateId: true,
       });
-
+      const color = [
+        "interpolate",
+        ["linear"],
+        ["coalesce", ["get", "price"], 0],
+        0,
+        "#fbe6c5",
+        200000,
+        "#f5ba98",
+        300000,
+        "#ee8a82",
+        500000,
+        "#dc7176",
+        800000,
+        "#c8586c",
+        1300000,
+        "#9c3f5d",
+        2100000,
+        "#70284a",
+      ];
       // The feature-state dependent fill-opacity expression will render the hover effect
       // when a feature's hover state is set to true.
       mapRef.current.addLayer({
@@ -80,12 +95,13 @@ const MapboxExample = ({
         source: "states",
         layout: {},
         paint: {
-          "fill-color": "#627BC1",
+          "default-fill-color": "#eee",
+          "fill-color": color,
           "fill-opacity": [
             "case",
-            ["boolean", ["feature-state", "hover"], false],
-            1,
-            0.5,
+            ["==", ["coalesce", ["get", "price"], 0], 0],
+            0,
+            ["case", ["boolean", ["feature-state", "hover"], false], 1, 0.75],
           ],
         },
       });
@@ -96,12 +112,18 @@ const MapboxExample = ({
         source: "states",
         layout: {},
         paint: {
-          "line-color": "#627BC1",
+          "line-color": color,
           "line-width": 2,
+          "line-opacity": [
+            "case",
+            ["==", ["coalesce", ["get", "price"], 0], 0],
+            0,
+            1,
+          ],
         },
       });
 
-      mapRef.current.on("mousemove", "state-fills", (e) => {
+      mapRef.current.on("mousemove", "state-fills", (e: any) => {
         if (e.features.length > 0) {
           if (hoveredPolygonId !== null) {
             mapRef.current.setFeatureState(
@@ -110,12 +132,11 @@ const MapboxExample = ({
             );
           }
           hoveredPolygonId = e.features[0].id;
-          setName(e.features[0].properties.name);
-          setDescription(e.features[0].properties.description);
           mapRef.current.setFeatureState(
             { source: "states", id: hoveredPolygonId },
             { hover: true }
           );
+          setPostcodeProps(e.features[0].properties);
         }
       });
 
@@ -129,49 +150,82 @@ const MapboxExample = ({
         hoveredPolygonId = null;
       });
       //---
-      // mapRef.current.addLayer({
-      //   id: "poi-labels",
-      //   type: "symbol",
-      //   source: "states",
-      //   layout: {
-      //     "text-field": ["get", "name"],
-      //     "text-variable-anchor": ["top", "bottom", "left", "right"],
-      //     "text-radial-offset": 0.5,
-      //     "text-justify": "auto",
-      //   },
-      // });
-
-      // mapRef.current.setFilter("state-fills", [
-      //   "in",
-      //   "AB",
-      //   ["string", ["get", "name"]],
-      // ]);
+      mapRef.current.addLayer({
+        id: "poi-labels",
+        type: "symbol",
+        source: "states",
+        minzoom: 8,
+        layout: {
+          "text-field": [
+            "let",
+            "price",
+            [
+              "slice",
+              [
+                "number-format",
+                ["get", "price"],
+                {
+                  currency: "GBP",
+                },
+              ],
+              0,
+              -7,
+            ],
+            [
+              "case",
+              ["==", ["var", "price"], ""],
+              "",
+              ["concat", ["var", "price"], "K"],
+            ],
+          ],
+          "text-size": 11,
+        },
+      });
     });
   }, []);
 
-  const getPropertiesFromFilters = () => {
-    return _.filter(dataSet[name], (property) => {
-      if (_.has(propertyFilters, "isFreehold")) {
-        if (property.isFreehold !== propertyFilters.isFreehold) {
-          return false;
-        }
-      }
-      if (_.has(propertyFilters, "isNewBuild")) {
-        if (property.isNewBuild !== propertyFilters.isNewBuild) {
-          return false;
-        }
-      }
+  const getPriceMap = (): Record<string, { volume: number; price: number }> => {
+    const priceMap = getPropertyPricesFromFilters();
 
-      if (_.has(propertyFilters, "propertyTypes")) {
-        if (!propertyFilters.propertyTypes?.includes(property.propertyType)) {
+    return _.reduce(
+      priceMap,
+      (acc, properties, postcode) => {
+        const sum = properties.reduce((a, b) => a + b, 0);
+        const volume = properties.length;
+        const price = volume
+          ? Math.round(Math.round(sum / volume) / 1000) * 1000
+          : 0;
+        return { ...acc, [postcode]: { volume, price } };
+      },
+      {}
+    );
+  };
+
+  const getPropertyPricesFromFilters = (): Record<string, number[]> => {
+    return _.mapValues(dataSet, (properties) =>
+      _.filter(properties, (property) => {
+        if (_.has(propertyFilters, "isFreehold")) {
+          if (property.isFreehold !== propertyFilters.isFreehold) {
+            return false;
+          }
+        }
+        if (_.has(propertyFilters, "isNewBuild")) {
+          if (property.isNewBuild !== propertyFilters.isNewBuild) {
+            return false;
+          }
+        }
+
+        if (_.has(propertyFilters, "propertyTypes")) {
+          if (!propertyFilters.propertyTypes?.includes(property.propertyType)) {
+            return false;
+          }
+        }
+        if (propertyFilters.startYear > Number(property.year)) {
           return false;
         }
-      }
-      if (propertyFilters.startYear > Number(property.year)) {
-        return false;
-      }
-      return true;
-    });
+        return true;
+      }).map((properties) => properties.price)
+    );
   };
 
   return (
@@ -194,11 +248,12 @@ const MapboxExample = ({
           backgroundColor: "white",
         }}
       >
-        Average: {avgPrice}
+        {JSON.stringify(postcodeProps)}
+        {/* Average: {avgPrice} */}
         <br></br>
-        Volume: {volume}
+        {/* Volume: {volume} */}
         <br></br>
-        {description}
+        {/* {description} */}
       </div>
     </div>
   );

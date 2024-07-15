@@ -1,5 +1,5 @@
 import Slider from "@mui/material/Slider";
-import { FormControl, FormLabel } from "@mui/material";
+import { Box, FormControl, FormLabel } from "@mui/material";
 import { useEffect, useState } from "react";
 import * as _ from "lodash";
 
@@ -36,20 +36,22 @@ export default function SimpleSlider({
   }, [range, step]);
 
   return (
-    <FormControl className="w-full">
+    <FormControl>
       <FormLabel>{label}</FormLabel>
-      <Slider
-        value={value}
-        onChange={handleChange}
-        track="inverted"
-        defaultValue={range[0]}
-        getAriaValueText={valuetext}
-        valueLabelDisplay="auto"
-        step={step}
-        marks={marks}
-        min={range[0]}
-        max={range[1]}
-      />
+      <Box sx={{ px: 2 }}>
+        <Slider
+          value={value}
+          onChange={handleChange}
+          track="inverted"
+          defaultValue={range[0]}
+          getAriaValueText={valuetext}
+          valueLabelDisplay="auto"
+          step={step}
+          marks={marks}
+          min={range[0]}
+          max={range[1]}
+        />
+      </Box>
     </FormControl>
   );
 }
